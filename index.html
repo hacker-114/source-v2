@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Source</title>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+    <style>
+        body{margin:0;padding:0;font-family:Arial,sans-serif;background:#000;color:#fff;overflow:hidden;height:100vh}
+        .header{display:flex;justify-content:space-between;align-items:center;padding:0 20px;background:#111;border-bottom:3px solid #f00;position:relative;z-index:10}
+        .made-by{position:absolute;right:20px;top:50%;transform:translateY(-50%);color:#f00;font-weight:bold;font-size:14px}
+        .tabs{display:flex;background:#111}
+        .tab{padding:16px 35px;cursor:pointer;background:#222;color:#fff;font-weight:bold;transition:.3s}
+        .tab:hover{background:#f00}
+        .tab.active{background:#f00;box-shadow:0 0 20px #f00}
+        .content{display:none;height:calc(100vh - 56px)}
+        .content.active{display:flex}
+        #manual-editor{flex-direction:row}
+        .editor-panel{width:50%;padding:20px;background:#111;overflow-y:auto;border-right:2px solid #f00;box-sizing:border-box}
+        .preview-panel{width:50%;position:relative;background:#000}
+        #preview-iframe{width:100%;height:100%;border:none;background:#fff}
+        .file-section{margin-bottom:25px;background:#111;padding:18px;border-radius:12px;border:1px solid #f00;box-shadow:0 0 15px rgba(255,0,0,.3)}
+        .file-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+        .file-name{padding:10px 15px;background:#222;border:1px solid #f00;color:#ff3333;border-radius:6px;font-weight:bold}
+        .copy-btn{padding:10px 22px;background:#f00;border:none;color:#fff;font-weight:bold;border-radius:6px;cursor:pointer;transition:.3s}
+        .copy-btn:hover{background:#ff3333}
+        .file-content{width:100%;height:260px;background:#000;border:1px solid #f00;color:#0f0;padding:12px;border-radius:8px;font-family:'Courier New',monospace;font-size:14px;resize:vertical}
+        #add-file{padding:16px 35px;background:#f00;border:none;color:#fff;font-weight:bold;border-radius:8px;margin:20px 0;cursor:pointer;transition:.3s}
+        #add-file:hover{background:#c00}
+        #fullscreen-btn{position:absolute;top:12px;right:12px;padding:10px 20px;background:#f00;border:none;color:#fff;cursor:pointer;border-radius:6px;z-index:10;transition:.3s}
+        #fullscreen-btn:hover{background:#c00}
+        .fetch-header{padding:20px;background:#111;border-bottom:2px solid #f00;display:flex;align-items:center;justify-content:center;gap:15px}
+        #url-input{width:65%;padding:16px;background:#222;border:2px solid #f00;color:#fff;border-radius:8px;font-size:17px;outline:none}
+        #url-input:focus{border-color:#ff3333}
+        #fetch-btn{padding:16px 40px;background:#f00;border:none;color:#fff;font-weight:bold;border-radius:8px;cursor:pointer;transition:.3s}
+        #fetch-btn:hover{background:#c00}
+        #fetched-files{flex:1;overflow-y:auto;padding:20px;background:#000}
+        .status{padding:12px;background:#300;color:#f66;text-align:center;border-radius:8px;margin:10px 0;font-weight:bold}
+        .binary-preview{max-width:100%;margin-top:10px;border-radius:8px;box-shadow:0 0 15px rgba(255,0,0,.5)}
+        .download-link{margin-top:10px;display:inline-block;padding:8px 16px;background:#f00;color:#fff;border-radius:6px;text-decoration:none}
+        .download-link:hover{background:#ff3333}
+        .fullscreen .preview-panel{width:100vw;height:100vh;position:fixed;top:0;left:0;z-index:100;background:#000}
+        .fullscreen .editor-panel,.fullscreen .header,.fullscreen .tabs{display:none}
+    </style>
+</head>
+<body>
+<div class="header">
+    <div class="tabs">
+        <div class="tab active" data-tab="manual">Manual Editor</div>
+        <div class="tab" data-tab="fetch">Auto Scraper</div>
+    </div>
+    <div class="made-by">Made by Hacker114</div>
+</div>
+<!-- Manual Editor -->
+<div id="manual-editor" class="content active">
+    <div class="editor-panel">
+        <button id="add-file">+ Add File</button>
+        <div id="files-container"></div>
+    </div>
+    <div class="preview-panel">
+        <button id="fullscreen-btn">Fullscreen</button>
+        <iframe id="preview-iframe" sandbox="allow-scripts allow-modals allow-popups"></iframe>
+    </div>
+</div>
+<!-- Fetch from URL -->
+<div id="fetch-page" class="content" onclick="event.stopPropagation()">
+    <div class="fetch-header">
+        <input type="text" id="url-input" placeholder="https://example.com/page.html">
+        <button id="fetch-btn">Fetch Files</button>
+    </div>
+    <div id="fetched-files">
+        <div class="status">Enter a URL and click Fetch Files</div>
+    </div>
+</div>
+<script>
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function(e) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        this.classList.add('active');
+        const target = this.getAttribute('data-tab') === 'manual' ? 'manual-editor' : 'fetch-page';
+        document.getElementById(target).classList.add('active');
+    });
+});
+/* ============ Manual Editor ============ */
+let files = [];
+function addFile(name = 'index.html', content = '') {
+    const i = files.length;
+    if (!content) {
+        content = `<!DOCTYPE html>
+<html>
+<head><title>${name}</title></head>
+<body style="background:#000;color:#0f0;font-family:monospace;text-align:center;padding-top:100px">
+    <h1 style="color:#f00">Live Preview Works!</h1>
+    <p>Start editing on the left</p>
+</body>
+</html>`;
+    }
+    files.push({name, content});
+    const container = document.getElementById('files-container');
+    const section = document.createElement('div');
+    section.className = 'file-section';
+    section.innerHTML = `
+        <div class="file-header">
+            <input type="text" class="file-name" value="${name}" oninput="files[${i}].name=this.value;updatePreview()">
+            <button class="copy-btn" onclick="navigator.clipboard.writeText(files[${i}].content)">Copy</button>
+        </div>
+        <textarea class="file-content" oninput="files[${i}].content=this.value;updatePreview()">${content}</textarea>`;
+    container.appendChild(section);
+    updatePreview();
+}
+document.getElementById('add-file').onclick = () => addFile();
+function updatePreview() {
+    let html = '', css = [], js = [];
+    files.forEach(f => {
+        const n = f.name.toLowerCase();
+        if (n.endsWith('.html') || n === 'html') html = f.content;
+        else if (n.endsWith('.css')) css.push(f.content);
+        else if (n.endsWith('.js')) js.push(f.content);
+    });
+    if (!html.trim()) {
+        html = `<h1 style="color:#f00;text-align:center;margin-top:100px">Add an HTML file to see preview</h1>`;
+    }
+    css.forEach(c => html += `\n<style>${c}</style>`);
+    js.forEach(j => html += `\n<script>${j}<\/script>`);
+    document.getElementById('preview-iframe').srcdoc = html;
+}
+/* Fullscreen */
+document.getElementById('fullscreen-btn').onclick = function() {
+    document.body.classList.toggle('fullscreen');
+    this.textContent = document.body.classList.contains('fullscreen') ? 'Exit Fullscreen' : 'Fullscreen';
+};
+/* ============ URL Fetcher ============ */
+const PROXY = 'https://api.allorigins.win/raw?url=';
+let fetchedFiles = {}; // path -> { type: 'text'|'blob', content: string|Blob, url: originalURL }
+
+function resolve(base, url) {
+    try { return new URL(url, base).href; } catch { return url; }
+}
+
+document.getElementById('fetch-btn').onclick = async () => {
+    let url = document.getElementById('url-input').value.trim();
+    if (!url) return alert('Enter a URL');
+    if (!url.startsWith('http')) url = 'https://' + url;
+    const container = document.getElementById('fetched-files');
+    container.innerHTML = '<div class="status">Fetching...</div>';
+    fetchedFiles = {};
+    const fetched = new Set();
+
+    try {
+        const pageUrl = new URL(url);
+        const base = pageUrl.origin + pageUrl.pathname.substring(0, pageUrl.pathname.lastIndexOf('/') + 1);
+
+        const htmlResp = await fetch(PROXY + encodeURIComponent(url));
+        let html = await htmlResp.text();
+
+        // Always name the homepage index.html
+        const htmlPath = 'index.html';
+        fetchedFiles[htmlPath] = { type: 'text', content: html };
+        addFetchedFile(htmlPath, html, 'text');
+        fetched.add(url);
+
+        const parser = new DOMParser();
+        let doc = parser.parseFromString(html, 'text/html');
+
+        const assets = [];
+        doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(l => assets.push({url: resolve(base, l.getAttribute('href')), tag: l, attr: 'href'}));
+        doc.querySelectorAll('script[src]').forEach(s => assets.push({url: resolve(base, s.getAttribute('src')), tag: s, attr: 'src'}));
+        doc.querySelectorAll('img[src]').forEach(i => assets.push({url: resolve(base, i.getAttribute('src')), tag: i, attr: 'src'}));
+
+        await Promise.all(assets.map(async asset => {
+            if (fetched.has(asset.url)) return;
+            fetched.add(asset.url);
+            try {
+                const res = await fetch(PROXY + encodeURIComponent(asset.url));
+                if (!res.ok) return;
+
+                const assetPath = new URL(asset.url).pathname;
+                const cleanPath = assetPath.startsWith('/') ? assetPath.slice(1) : assetPath;
+
+                let fileData;
+                const isImage = asset.url.match(/\.(png|jpe?g|gif|svg|webp|avif|ico)$/i);
+                if (isImage) {
+                    const blob = await res.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    fileData = { type: 'blob', content: blob, url: blobUrl, blobType: blob.type };
+                    // Point to the relative path (not blob) in final saved files
+                    asset.tag.setAttribute(asset.attr, cleanPath);
+                } else {
+                    const text = await res.text();
+                    fileData = { type: 'text', content: text };
+                    asset.tag.setAttribute(asset.attr, cleanPath);
+                }
+
+                fetchedFiles[cleanPath] = fileData;
+                addFetchedFile(cleanPath, fileData.content, fileData.type, fileData.url, fileData.blobType);
+            } catch(e) { console.error(e); }
+        }));
+
+        // Final updated HTML with correct relative paths
+        const finalHtml = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        fetchedFiles[htmlPath] = { type: 'text', content: finalHtml };
+
+        // Update displayed index.html
+        document.querySelectorAll('.file-section').forEach(sec => {
+            const nameDiv = sec.querySelector('.file-name');
+            if (nameDiv && nameDiv.textContent === htmlPath) {
+                const textarea = sec.querySelector('textarea');
+                if (textarea) textarea.value = finalHtml.replace(/</g, '&lt;');
+            }
+        });
+
+        container.insertAdjacentHTML('afterbegin', '<div class="status" style="background:#030;color:#0f0">Done!</div>');
+    } catch (e) {
+        container.innerHTML = `<div class="status">Error: ${e.message}</div>`;
+    }
+};
+
+function addFetchedFile(path, content, type = 'text', blobUrl = null, mimeType = null) {
+    if ([...document.querySelectorAll('.file-name')].some(el => el.textContent === path)) return;
+
+    const div = document.createElement('div');
+    div.className = 'file-section';
+    const id = 'f' + Date.now() + Math.random().toString(36).substr(2);
+
+    let contentHTML = '';
+    if (type === 'text') {
+        contentHTML = `<textarea id="${id}" class="file-content" readonly>${content.replace(/</g,'&lt;')}</textarea>`;
+    } else if (type === 'blob' && blobUrl) {
+        if (mimeType && mimeType.startsWith('image/')) {
+            contentHTML = `<img src="${blobUrl}" class="binary-preview" alt="${path}">`;
+        }
+        contentHTML += `<br><a href="${blobUrl}" download="${path.split('/').pop()}" class="download-link">Download ${path.split('/').pop()}</a>`;
+    }
+
+    div.innerHTML = `
+        <div class="file-header">
+            <div class="file-name">${path.replace(/</g,'&lt;')}</div>
+            <button class="copy-btn" onclick="${type === 'text' ? `copyText('${id}')` : `alert('Binary file - use right-click Save As on the preview or download link')`}">Copy${type === 'text' ? '' : ' (N/A)'}</button>
+        </div>
+        ${contentHTML}`;
+    document.getElementById('fetched-files').appendChild(div);
+}
+
+function copyText(id) {
+    const el = document.getElementById(id);
+    el.select();
+    el.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+}
+
+// Start with example
+addFile('index.html', `<!DOCTYPE html>
+<html>
+<head>
+    <title>Hacker114 Code Runner</title>
+    <style>body{background:#000;color:#0f0;text-align:center;padding-top:80px;font-family:monospace}</style>
+</head>
+<body>
+    <h1 style="color:#f00">HTML Runner</h1>
+    <p>Type HTML in the box to the left</p>
+</body>
+</html>`);
+</script>
+</body>
+</html>
