@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Source</title>
+    <title>Auto</title>
     <link rel="icon" type="image/x-icon" href="favicon.png">
     <style>
         body{margin:0;padding:0;font-family:Arial,sans-serif;background:#000;color:#fff;overflow:hidden;height:100vh}
@@ -36,9 +36,6 @@
         #fetch-btn:hover{background:#c00}
         #fetched-files{flex:1;overflow-y:auto;padding:20px;background:#000}
         .status{padding:12px;background:#300;color:#f66;text-align:center;border-radius:8px;margin:10px 0;font-weight:bold}
-        .binary-preview{max-width:100%;margin-top:10px;border-radius:8px;box-shadow:0 0 15px rgba(255,0,0,.5)}
-        .download-link{margin-top:10px;display:inline-block;padding:8px 16px;background:#f00;color:#fff;border-radius:6px;text-decoration:none}
-        .download-link:hover{background:#ff3333}
         .fullscreen .preview-panel{width:100vw;height:100vh;position:fixed;top:0;left:0;z-index:100;background:#000}
         .fullscreen .editor-panel,.fullscreen .header,.fullscreen .tabs{display:none}
     </style>
@@ -73,7 +70,7 @@
     </div>
 </div>
 <script>
-// Tab switching
+// Tab switching - fixed version
 document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', function(e) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -133,124 +130,119 @@ document.getElementById('fullscreen-btn').onclick = function() {
 };
 /* ============ URL Fetcher ============ */
 const PROXY = 'https://api.allorigins.win/raw?url=';
-let fetchedFiles = {}; // path -> { type: 'text'|'blob', content: string|Blob, url: originalURL }
-
 function resolve(base, url) {
     try { return new URL(url, base).href; } catch { return url; }
 }
-
+function getRelativePath(fromDir, toPath) {
+    const fromParts = fromDir.split('/').filter(p => p);
+    const toParts = toPath.split('/').filter(p => p);
+    let common = 0;
+    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) common++;
+    const up = fromParts.length - common;
+    const rel = '../'.repeat(up) + toParts.slice(common).join('/');
+    return rel || '.';
+}
 document.getElementById('fetch-btn').onclick = async () => {
     let url = document.getElementById('url-input').value.trim();
     if (!url) return alert('Enter a URL');
     if (!url.startsWith('http')) url = 'https://' + url;
     const container = document.getElementById('fetched-files');
     container.innerHTML = '<div class="status">Fetching...</div>';
-    fetchedFiles = {};
     const fetched = new Set();
-
+    const assetMap = new Map();
     try {
-        const pageUrl = new URL(url);
-        const base = pageUrl.origin + pageUrl.pathname.substring(0, pageUrl.pathname.lastIndexOf('/') + 1);
-
-        const htmlResp = await fetch(PROXY + encodeURIComponent(url));
-        let html = await htmlResp.text();
-
-        // Always name the homepage index.html
-        const htmlPath = 'index.html';
-        fetchedFiles[htmlPath] = { type: 'text', content: html };
-        addFetchedFile(htmlPath, html, 'text');
-        fetched.add(url);
-
+        const html_text = await (await fetch(PROXY + encodeURIComponent(url))).text();
         const parser = new DOMParser();
-        let doc = parser.parseFromString(html, 'text/html');
-
-        const assets = [];
-        doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(l => assets.push({url: resolve(base, l.getAttribute('href')), tag: l, attr: 'href'}));
-        doc.querySelectorAll('script[src]').forEach(s => assets.push({url: resolve(base, s.getAttribute('src')), tag: s, attr: 'src'}));
-        doc.querySelectorAll('img[src]').forEach(i => assets.push({url: resolve(base, i.getAttribute('src')), tag: i, attr: 'src'}));
-
+        const doc = parser.parseFromString(html_text, 'text/html');
+        const pageBase = url.substring(0, url.lastIndexOf('/') + 1);
+        const rootUrl = new URL(url).origin + '/';
+        const htmlPath = url.substring(rootUrl.length) || 'index.html';
+        const htmlDir = htmlPath.substring(0, htmlPath.lastIndexOf('/') + 1);
+        const selectors = [
+            {tag: 'link[rel="stylesheet"]', attr: 'href'},
+            {tag: 'script[src]', attr: 'src'},
+            {tag: 'img[src]', attr: 'src'}
+        ];
+        selectors.forEach(sel => {
+            doc.querySelectorAll(sel.tag).forEach(el => {
+                const original = el.getAttribute(sel.attr);
+                if (!original) return;
+                const fullAsset = resolve(pageBase, original);
+                if (assetMap.has(fullAsset)) return;
+                let localPath;
+                if (fullAsset.startsWith(rootUrl)) {
+                    localPath = fullAsset.substring(rootUrl.length);
+                } else {
+                    localPath = 'assets/' + fullAsset.split('/').pop().split('?')[0];
+                }
+                assetMap.set(fullAsset, localPath);
+                const relative = getRelativePath(htmlDir, localPath);
+                el.setAttribute(sel.attr, relative);
+            });
+        });
+        const modifiedHtml = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        addFetchedFile(htmlPath, modifiedHtml);
+        fetched.add(url);
+        const assets = Array.from(assetMap.keys());
         await Promise.all(assets.map(async asset => {
-            if (fetched.has(asset.url)) return;
-            fetched.add(asset.url);
+            if (fetched.has(asset)) return;
+            fetched.add(asset);
             try {
-                const res = await fetch(PROXY + encodeURIComponent(asset.url));
+                const res = await fetch(PROXY + encodeURIComponent(asset));
                 if (!res.ok) return;
-
-                const assetPath = new URL(asset.url).pathname;
-                const cleanPath = assetPath.startsWith('/') ? assetPath.slice(1) : assetPath;
-
-                let fileData;
-                const isImage = asset.url.match(/\.(png|jpe?g|gif|svg|webp|avif|ico)$/i);
+                const name = assetMap.get(asset);
+                let content;
+                const isImage = name.match(/\.(png|jpe?g|gif|svg|webp)$/i);
                 if (isImage) {
                     const blob = await res.blob();
-                    const blobUrl = URL.createObjectURL(blob);
-                    fileData = { type: 'blob', content: blob, url: blobUrl, blobType: blob.type };
-                    // Point to the relative path (not blob) in final saved files
-                    asset.tag.setAttribute(asset.attr, cleanPath);
+                    content = await new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
                 } else {
-                    const text = await res.text();
-                    fileData = { type: 'text', content: text };
-                    asset.tag.setAttribute(asset.attr, cleanPath);
+                    content = await res.text();
                 }
-
-                fetchedFiles[cleanPath] = fileData;
-                addFetchedFile(cleanPath, fileData.content, fileData.type, fileData.url, fileData.blobType);
-            } catch(e) { console.error(e); }
+                addFetchedFile(name, content, isImage);
+            } catch (e) {}
         }));
-
-        // Final updated HTML with correct relative paths
-        const finalHtml = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
-        fetchedFiles[htmlPath] = { type: 'text', content: finalHtml };
-
-        // Update displayed index.html
-        document.querySelectorAll('.file-section').forEach(sec => {
-            const nameDiv = sec.querySelector('.file-name');
-            if (nameDiv && nameDiv.textContent === htmlPath) {
-                const textarea = sec.querySelector('textarea');
-                if (textarea) textarea.value = finalHtml.replace(/</g, '&lt;');
-            }
-        });
-
         container.insertAdjacentHTML('afterbegin', '<div class="status" style="background:#030;color:#0f0">Done!</div>');
     } catch (e) {
         container.innerHTML = `<div class="status">Error: ${e.message}</div>`;
     }
 };
-
-function addFetchedFile(path, content, type = 'text', blobUrl = null, mimeType = null) {
-    if ([...document.querySelectorAll('.file-name')].some(el => el.textContent === path)) return;
-
+function addFetchedFile(name, content, isImage = false) {
     const div = document.createElement('div');
     div.className = 'file-section';
-    const id = 'f' + Date.now() + Math.random().toString(36).substr(2);
-
-    let contentHTML = '';
-    if (type === 'text') {
-        contentHTML = `<textarea id="${id}" class="file-content" readonly>${content.replace(/</g,'&lt;')}</textarea>`;
-    } else if (type === 'blob' && blobUrl) {
-        if (mimeType && mimeType.startsWith('image/')) {
-            contentHTML = `<img src="${blobUrl}" class="binary-preview" alt="${path}">`;
-        }
-        contentHTML += `<br><a href="${blobUrl}" download="${path.split('/').pop()}" class="download-link">Download ${path.split('/').pop()}</a>`;
+    const escapedName = name.replace(/</g, '&lt;');
+    let inner;
+    if (isImage) {
+        inner = `
+            <div class="file-header">
+                <div class="file-name">${escapedName}</div>
+                <a href="${content}" download="${name}" class="copy-btn">Download</a>
+            </div>
+            <img src="${content}" style="max-width:100%; border-radius:8px;">`;
+    } else {
+        const id = 'f' + Date.now() + Math.random().toString(36).substr(2);
+        const escapedContent = content.replace(/</g, '&lt;');
+        inner = `
+            <div class="file-header">
+                <div class="file-name">${escapedName}</div>
+                <button class="copy-btn" onclick="copyText('${id}')">Copy</button>
+            </div>
+            <textarea id="${id}" class="file-content" readonly>${escapedContent}</textarea>`;
     }
-
-    div.innerHTML = `
-        <div class="file-header">
-            <div class="file-name">${path.replace(/</g,'&lt;')}</div>
-            <button class="copy-btn" onclick="${type === 'text' ? `copyText('${id}')` : `alert('Binary file - use right-click Save As on the preview or download link')`}">Copy${type === 'text' ? '' : ' (N/A)'}</button>
-        </div>
-        ${contentHTML}`;
+    div.innerHTML = inner;
     document.getElementById('fetched-files').appendChild(div);
 }
-
 function copyText(id) {
     const el = document.getElementById(id);
     el.select();
     el.setSelectionRange(0, 99999);
     document.execCommand('copy');
 }
-
-// Start with example
+// Start with a nice example
 addFile('index.html', `<!DOCTYPE html>
 <html>
 <head>
